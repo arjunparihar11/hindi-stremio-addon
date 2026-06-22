@@ -16,9 +16,9 @@ app.add_middleware(
 
 MANIFEST = {
     "id": "community.dynamicindiancatalogs",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "name": "Hindi Media Hub",
-    "description": "Latest and upcoming catalogs for Hindi movies and series.",
+    "description": "Latest and upcoming catalogs for Hindi movies and series (100 items each).",
     "resources": ["catalog"],
     "types": ["movie", "series"],
     "idPrefixes": ["tmdb"],
@@ -30,8 +30,7 @@ MANIFEST = {
     ]
 }
 
-# Pulls token from Render environment variables first, falls back to hardcoded string
-TMDB_API_KEY = os.environ.get("TMDB_API_KEY", "5bac60b56fcf01fd5cdca7d856416355")
+TMDB_API_KEY = os.environ.get("TMDB_API_KEY", "your_tmdb_api_key_here")
 BASE_URL = "https://api.themoviedb.org/3"
 
 def fetch_hindi_media(media_type="movie", status="latest"):
@@ -40,8 +39,7 @@ def fetch_hindi_media(media_type="movie", status="latest"):
     
     params = {
         "api_key": TMDB_API_KEY,
-        "with_original_language": "hi",
-        "page": 1
+        "with_original_language": "hi"
     }
     
     if media_type == "movie":
@@ -57,29 +55,36 @@ def fetch_hindi_media(media_type="movie", status="latest"):
         else:
             params["first_air_date.gte"] = today_str
 
-    response = requests.get(endpoint, params=params)
-    if response.status_code != 200:
-        return []
-        
-    results = response.json().get("results", [])
     metas = []
     
-    for item in results:
-        title = item.get("title") if media_type == "movie" else item.get("name")
-        release_date = item.get("release_date") if media_type == "movie" else item.get("first_air_date")
-        year = release_date.split("-")[0] if release_date else "TBA"
-        poster_path = item.get("poster_path")
-        poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else "https://via.placeholder.com/500x750"
+    # Loop through exactly 5 pages to gather 100 items total
+    for page in range(1, 6):
+        params["page"] = page
+        response = requests.get(endpoint, params=params)
         
-        metas.append({
-            "id": f"tmdb:{item.get('id')}", 
-            "type": "movie" if media_type == "movie" else "series",
-            "name": title,
-            "poster": poster_url,
-            "releaseInfo": year,
-            "description": f"Release Date: {release_date or 'TBA'}\n\n{item.get('overview', '')}"
-        })
-        
+        if response.status_code != 200:
+            break
+            
+        results = response.json().get("results", [])
+        if not results:
+            break  # Break early if the API runs out of content
+            
+        for item in results:
+            title = item.get("title") if media_type == "movie" else item.get("name")
+            release_date = item.get("release_date") if media_type == "movie" else item.get("first_air_date")
+            year = release_date.split("-")[0] if release_date else "TBA"
+            poster_path = item.get("poster_path")
+            poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else "https://via.placeholder.com/500x750"
+            
+            metas.append({
+                "id": f"tmdb:{item.get('id')}", 
+                "type": "movie" if media_type == "movie" else "series",
+                "name": title,
+                "poster": poster_url,
+                "releaseInfo": year,
+                "description": f"Release Date: {release_date or 'TBA'}\n\n{item.get('overview', '')}"
+            })
+            
     return metas
 
 @app.get("/manifest.json")
