@@ -16,9 +16,9 @@ app.add_middleware(
 
 MANIFEST = {
     "id": "community.dynamicindiancatalogs",
-    "version": "1.6.0",
-    "name": "Hindi Media Hub (btttr.cc)",
-    "description": "Latest/Upcoming Hindi catalogs using btttr.cc query strings for ratings.",
+    "version": "1.7.0",
+    "name": "Hindi Media Hub (Pure Indian)",
+    "description": "Latest/Upcoming native Hindi catalogs excluding foreign dubs entirely.",
     "resources": ["catalog"],
     "types": ["movie", "series"],
     "idPrefixes": ["tt", "tmdb"],
@@ -53,9 +53,14 @@ def search_tmdb_fallback(title: str, media_type: str):
         res = requests.get(url, params=params, timeout=5)
         if res.status_code == 200 and res.json().get("results"):
             for match in res.json()["results"]:
-                if match.get("original_language") == "hi":
+                # STRICT CHECK: Must be originally in Hindi AND originate from India
+                origin_countries = match.get("origin_country", [])
+                if match.get("original_language") == "hi" and "IN" in origin_countries:
                     return match
-            return res.json()["results"][0]
+            # If no perfect match found, check safety constraints on the very first result
+            first_match = res.json()["results"][0]
+            if first_match.get("original_language") == "hi" and "IN" in first_match.get("origin_country", []):
+                return first_match
     except Exception:
         pass
     return None
@@ -80,9 +85,11 @@ def fetch_hindi_media(media_type="movie", status="latest"):
     endpoint = f"{BASE_URL}/discover/{media_type}"
     today_str = datetime.today().strftime('%Y-%m-%d')
     
+    # STRICT FILTERING: Original Language Hindi + Country of Origin India
     params = {
         "api_key": TMDB_API_KEY,
-        "with_original_language": "hi"
+        "with_original_language": "hi",
+        "with_origin_country": "IN"
     }
     
     if media_type == "movie":
@@ -94,7 +101,7 @@ def fetch_hindi_media(media_type="movie", status="latest"):
 
     merged_catalog = {}
 
-    # Phase 1: Ingest TMDB discover list
+    # Phase 1: Ingest TMDB discover list (Filtered to India/Hindi)
     for page in range(1, 6):
         params["page"] = page
         try:
@@ -110,7 +117,6 @@ def fetch_hindi_media(media_type="movie", status="latest"):
                 if tmdb_id not in merged_catalog:
                     imdb_id = get_imdb_id(tmdb_id, media_type)
                     
-                    # Apply your explicit btttr.cc structural link matching configuration
                     if imdb_id:
                         poster_url = f"https://btttr.cc/poster-q/imdb/poster-default/{imdb_id}.jpg?rs=RT"
                         stremio_id = imdb_id
@@ -135,7 +141,7 @@ def fetch_hindi_media(media_type="movie", status="latest"):
         except Exception:
             break
 
-    # Phase 2: Ingest Binged Scraped Titles
+    # Phase 2: Ingest Binged Scraped Titles (Filtered via strict fallback verification)
     scraped_titles = scrape_binged_premiere_titles()
     for raw_title in scraped_titles:
         tmdb_item = search_tmdb_fallback(raw_title, media_type)
